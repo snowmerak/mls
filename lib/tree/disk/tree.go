@@ -105,6 +105,8 @@ func (e *Element) SetRightCount(count int) {
 	e.rightCount = count
 }
 
+
+
 // Value implements tree.Element.
 func (e *Element) Value() []byte {
 	return e.publicKey
@@ -656,7 +658,7 @@ func collectLeafNames(node *Element) []string {
 }
 
 // GetNodeByIndex finds a node by its index number
-func (t *Tree) GetNodeByIndex(targetIndex int) *Element {
+func (t *Tree) GetNodeByIndex(targetIndex int) tree.Element {
 	if t.head == nil {
 		return nil
 	}
@@ -858,8 +860,8 @@ func (t *Tree) SetIntermediateNodeKey(nodeName string, publicKey []byte) error {
 }
 
 // GetTreeStructure returns the current tree structure for client-side key computation
-func (t *Tree) GetTreeStructure() map[string]*NodeInfo {
-	structure := make(map[string]*NodeInfo)
+func (t *Tree) GetTreeStructure() map[string]*tree.NodeInfo {
+	structure := make(map[string]*tree.NodeInfo)
 	
 	var traverse func(*Element)
 	traverse = func(node *Element) {
@@ -867,7 +869,7 @@ func (t *Tree) GetTreeStructure() map[string]*NodeInfo {
 			return
 		}
 		
-		info := &NodeInfo{
+		info := &tree.NodeInfo{
 			Name:        node.name,
 			PublicKey:   node.publicKey,
 			NodeType:    node.nodeType,
@@ -893,13 +895,4 @@ func (t *Tree) GetTreeStructure() map[string]*NodeInfo {
 	return structure
 }
 
-type NodeInfo struct {
-	Name        string `json:"name"`
-	PublicKey   []byte `json:"public_key"`
-	NodeType    string `json:"node_type"`
-	LeafIndex   int    `json:"leaf_index"`
-	NodeIndex   int    `json:"node_index"`
-	ParentIndex int    `json:"parent_index"`
-	LeftChild   string `json:"left_child,omitempty"`
-	RightChild  string `json:"right_child,omitempty"`
-}
+
