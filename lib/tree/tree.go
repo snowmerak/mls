@@ -488,9 +488,9 @@ func (t *Tree) Insert(name string, value []byte) error {
 			// Create an intermediate node placeholder
 			// In real TreeKEM, the public key would be provided by clients after DH computation
 			intermediateNode := &Element{
-				name:         fmt.Sprintf("intermediate_%s_%s", current.name, newNode.name),
+				name:         generateIntermediateNodeName(t.nextNodeIndex, time.Now()),
 				publicKey:    []byte{}, // Will be set by client-side key derivation
-				filePath:     t.generateFilePath(fmt.Sprintf("intermediate_%s_%s", current.name, newNode.name)),
+				filePath:     t.generateFilePath(generateIntermediateNodeName(t.nextNodeIndex, time.Now())),
 				leftChild:    current,
 				rightChild:   newNode,
 				leftCount:    1,
@@ -654,7 +654,7 @@ func (t *Tree) renameIntermediateNodes() {
 			// Generate new name based on current leaves
 			if len(leftLeafNames) > 0 && len(rightLeafNames) > 0 {
 				oldFilePath := node.filePath
-				newName := fmt.Sprintf("intermediate_%s_%s", leftLeafNames[0], rightLeafNames[0])
+				newName := generateIntermediateNodeName(node.nodeIndex, time.Now())
 				node.name = newName
 				node.filePath = t.generateFilePath(newName)
 
@@ -712,6 +712,29 @@ func (t *Tree) GetNodeByIndex(targetIndex int) *Element {
 	}
 
 	return nil
+}
+
+// generateIntermediateNodeName creates a hash-based name for intermediate nodes
+// using timestamp and node index to ensure uniqueness
+func generateIntermediateNodeName(nodeIndex int, timestamp time.Time) string {
+	hasher := sha256.New()
+	
+	// Add domain separation
+	hasher.Write([]byte("TreeKEM-intermediate-node"))
+	
+	// Add timestamp (nanoseconds for high precision)
+	timestampBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(timestampBytes, uint64(timestamp.UnixNano()))
+	hasher.Write(timestampBytes)
+	
+	// Add node index
+	indexBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(indexBytes, uint32(nodeIndex))
+	hasher.Write(indexBytes)
+	
+	// Return first 16 bytes (128 bits) as hex string
+	hash := hasher.Sum(nil)
+	return fmt.Sprintf("int_%x", hash[:16])
 }
 
 func DerivePublicKey(leftPubKey, rightPubKey []byte) []byte {
