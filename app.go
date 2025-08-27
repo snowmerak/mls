@@ -3,11 +3,11 @@ package main
 import (
 	"log"
 
-	"github.com/snowmerak/mls/lib/tree/disk"
+	"github.com/snowmerak/mls/lib/tree"
 )
 
 func main() {
-	tree, err := disk.NewTree("./data")
+	tree, err := tree.NewTree("./data")
 	if err != nil {
 		panic(err)
 	}

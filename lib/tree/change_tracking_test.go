@@ -1,4 +1,4 @@
-package disk
+package tree
 
 import (
 	"os"
@@ -45,18 +45,14 @@ func TestNodeChangeTracking(t *testing.T) {
 	modifiedNodes := tree.GetModifiedNodes(startTime)
 	t.Logf("  시작 시점 이후 변경된 노드 수: %d", len(modifiedNodes))
 	for _, node := range modifiedNodes {
-		if element, ok := node.(*Element); ok {
-			t.Logf("    - %s (수정시점: %v)", element.name, element.lastModified.Format("15:04:05.000"))
-		}
+		t.Logf("    - %s (수정시점: %v)", node.name, node.lastModified.Format("15:04:05.000"))
 	}
 
 	// Check nodes needing update (all should need update since we haven't checked them)
 	needingUpdate := tree.GetNodesNeedingUpdate()
 	t.Logf("  업데이트가 필요한 노드 수: %d", len(needingUpdate))
 	for _, node := range needingUpdate {
-		if element, ok := node.(*Element); ok {
-			t.Logf("    - %s (확인 필요)", element.name)
-		}
+		t.Logf("    - %s (확인 필요)", node.name)
 	}
 
 	t.Log("\n✅ Phase 3: 모든 노드를 확인함으로 표시")
@@ -79,10 +75,9 @@ func TestNodeChangeTracking(t *testing.T) {
 	if !found {
 		t.Fatal("Alice not found")
 	}
-	aliceElement := element.(*Element)
-	aliceElement.publicKey = []byte("alice_new_key")
-	aliceElement.MarkAsModified()
-	aliceElement.saveToDisk()
+	element.publicKey = []byte("alice_new_key")
+	element.MarkAsModified()
+	element.saveToDisk()
 
 	// Add new intermediate key
 	t.Log("  intermediate 노드 키 설정")
@@ -96,20 +91,18 @@ func TestNodeChangeTracking(t *testing.T) {
 	// Check what changed since we marked everything as checked
 	changedSinceCheck := tree.GetNodeChangesSince(checkTime)
 	t.Logf("  확인 시점 이후 변경된 노드들:")
-	for name, modTime := range changedSinceCheck {
-		t.Logf("    - %s: %v", name, modTime.Format("15:04:05.000"))
+	for _, node := range changedSinceCheck {
+		t.Logf("    - %s: %v", node.name, node.lastModified.Format("15:04:05.000"))
 	}
 
 	// Check nodes needing update again
 	needingUpdateNow := tree.GetNodesNeedingUpdate()
 	t.Logf("  현재 업데이트가 필요한 노드 수: %d", len(needingUpdateNow))
 	for _, node := range needingUpdateNow {
-		if element, ok := node.(*Element); ok {
-			t.Logf("    - %s (마지막 수정: %v, 마지막 확인: %v)", 
-				element.name, 
-				element.lastModified.Format("15:04:05.000"),
-				element.lastChecked.Format("15:04:05.000"))
-		}
+		t.Logf("    - %s (마지막 수정: %v, 마지막 확인: %v)", 
+			node.name, 
+			node.lastModified.Format("15:04:05.000"),
+			node.lastChecked.Format("15:04:05.000"))
 	}
 
 	t.Log("\n📊 Phase 6: 개별 노드 상태 확인")
@@ -119,14 +112,12 @@ func TestNodeChangeTracking(t *testing.T) {
 	for name, info := range structure {
 		node := tree.GetNodeByIndex(info.NodeIndex)
 		if node != nil {
-			if element, ok := node.(*Element); ok {
-				needsUpdate := element.NeedsUpdate()
-				t.Logf("  %s (노드=%d): 업데이트 필요=%t", name, info.NodeIndex, needsUpdate)
-				if needsUpdate {
-					t.Logf("    └─ 수정: %v, 확인: %v", 
-						element.lastModified.Format("15:04:05.000"),
-						element.lastChecked.Format("15:04:05.000"))
-				}
+			needsUpdate := node.NeedsUpdate()
+			t.Logf("  %s (노드=%d): 업데이트 필요=%t", name, info.NodeIndex, needsUpdate)
+			if needsUpdate {
+				t.Logf("    └─ 수정: %v, 확인: %v", 
+					node.lastModified.Format("15:04:05.000"),
+					node.lastChecked.Format("15:04:05.000"))
 			}
 		}
 	}
@@ -177,11 +168,9 @@ func TestFastChangeDetection(t *testing.T) {
 	for _, name := range modifiedNodes {
 		element, found := tree.Find(name)
 		if found {
-			if diskElement, ok := element.(*Element); ok {
-				diskElement.publicKey = []byte(name + "_modified_key")
-				diskElement.MarkAsModified()
-				diskElement.saveToDisk()
-			}
+			element.publicKey = []byte(name + "_modified_key")
+			element.MarkAsModified()
+			element.saveToDisk()
 		}
 	}
 
@@ -200,10 +189,8 @@ func TestFastChangeDetection(t *testing.T) {
 	// Verify only the right nodes were detected
 	detectedNames := make(map[string]bool)
 	for _, node := range needingUpdate {
-		if element, ok := node.(*Element); ok {
-			detectedNames[element.name] = true
-			t.Logf("    ✓ 감지된 변경 노드: %s", element.name)
-		}
+		detectedNames[node.name] = true
+		t.Logf("    ✓ 감지된 변경 노드: %s", node.name)
 	}
 
 	for _, expectedName := range modifiedNodes {
