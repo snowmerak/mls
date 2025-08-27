@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/snowmerak/mls/lib/tree"
 )
@@ -26,6 +27,10 @@ type Element struct {
 	nodeType   string   // "leaf" or "intermediate"
 	leafIndex  int      // for leaf nodes only
 	nodeIndex  int      // unique node number in the tree
+	
+	// Change tracking
+	lastModified time.Time // 마지막 수정 시점
+	lastChecked  time.Time // 마지막 확인 시점
 }
 
 // LeftChild implements tree.Element.
@@ -167,6 +172,36 @@ func (e *Element) IsRightChild() bool {
 	return e.nodeIndex > 0 && e.nodeIndex%2 == 0
 }
 
+// MarkAsModified updates the lastModified timestamp to current time
+func (e *Element) MarkAsModified() {
+	e.lastModified = time.Now()
+}
+
+// MarkAsChecked updates the lastChecked timestamp to current time  
+func (e *Element) MarkAsChecked() {
+	e.lastChecked = time.Now()
+}
+
+// WasModifiedSince checks if the node was modified after the given time
+func (e *Element) WasModifiedSince(since time.Time) bool {
+	return e.lastModified.After(since)
+}
+
+// NeedsUpdate checks if the node needs to be updated (modified after last check)
+func (e *Element) NeedsUpdate() bool {
+	return e.lastModified.After(e.lastChecked)
+}
+
+// LastModified returns the last modification time
+func (e *Element) LastModified() time.Time {
+	return e.lastModified
+}
+
+// LastChecked returns the last check time
+func (e *Element) LastChecked() time.Time {
+	return e.lastChecked
+}
+
 // NewTree creates a new disk-based tree with the given root path.
 func NewTree(rootPath string) (*Tree, error) {
 	if err := os.MkdirAll(rootPath, 0755); err != nil {
@@ -200,14 +235,16 @@ func LoadTree(rootPath string, headName string) (*Tree, error) {
 
 // elementData represents the serializable data for an element
 type elementData struct {
-	Name       string `json:"name"`
-	PublicKey  []byte `json:"public_key"`
-	LeftCount  int    `json:"left_count"`
-	RightCount int    `json:"right_count"`
-	LeftChild  string `json:"left_child,omitempty"`  // file path to left child
-	RightChild string `json:"right_child,omitempty"` // file path to right child
-	NodeType   string `json:"node_type"`             // "leaf" or "intermediate"
-	LeafIndex  int    `json:"leaf_index,omitempty"`  // for leaf nodes only
+	Name         string    `json:"name"`
+	PublicKey    []byte    `json:"public_key"`
+	LeftCount    int       `json:"left_count"`
+	RightCount   int       `json:"right_count"`
+	LeftChild    string    `json:"left_child,omitempty"`    // file path to left child
+	RightChild   string    `json:"right_child,omitempty"`   // file path to right child
+	NodeType     string    `json:"node_type"`               // "leaf" or "intermediate"
+	LeafIndex    int       `json:"leaf_index,omitempty"`    // for leaf nodes only
+	LastModified time.Time `json:"last_modified,omitempty"` // 마지막 수정 시점
+	LastChecked  time.Time `json:"last_checked,omitempty"`  // 마지막 확인 시점
 }
 
 // saveToDisk saves the element to disk
@@ -217,12 +254,14 @@ func (e *Element) saveToDisk() error {
 	}
 	
 	data := elementData{
-		Name:       e.name,
-		PublicKey:  e.publicKey,
-		LeftCount:  e.leftCount,
-		RightCount: e.rightCount,
-		NodeType:   e.nodeType,
-		LeafIndex:  e.leafIndex,
+		Name:         e.name,
+		PublicKey:    e.publicKey,
+		LeftCount:    e.leftCount,
+		RightCount:   e.rightCount,
+		NodeType:     e.nodeType,
+		LeafIndex:    e.leafIndex,
+		LastModified: e.lastModified,
+		LastChecked:  e.lastChecked,
 	}
 	
 	if e.leftChild != nil {
@@ -257,13 +296,15 @@ func loadFromDisk(filePath string) (*Element, error) {
 	}
 	
 	element := &Element{
-		name:       data.Name,
-		publicKey:  data.PublicKey,
-		leftCount:  data.LeftCount,
-		rightCount: data.RightCount,
-		filePath:   filePath,
-		nodeType:   data.NodeType,
-		leafIndex:  data.LeafIndex,
+		name:         data.Name,
+		publicKey:    data.PublicKey,
+		leftCount:    data.LeftCount,
+		rightCount:   data.RightCount,
+		filePath:     filePath,
+		nodeType:     data.NodeType,
+		leafIndex:    data.LeafIndex,
+		lastModified: data.LastModified,
+		lastChecked:  data.LastChecked,
 	}
 	
 	// Load children if they exist
@@ -421,12 +462,14 @@ func (t *Tree) Head() tree.Element {
 // This function only manages tree structure - actual key derivation happens client-side
 func (t *Tree) Insert(name string, value []byte) error {
 	newElement := &Element{
-		name:      name,
-		publicKey: value, // This is the user's public key
-		filePath:  t.generateFilePath(name),
-		nodeType:  "leaf",
-		leafIndex: t.getNextLeafIndex(),
-		nodeIndex: t.nextNodeIndex, // assign unique node number
+		name:         name,
+		publicKey:    value, // This is the user's public key
+		filePath:     t.generateFilePath(name),
+		nodeType:     "leaf",
+		leafIndex:    t.getNextLeafIndex(),
+		nodeIndex:    t.nextNodeIndex, // assign unique node number
+		lastModified: time.Now(),      // mark as modified when created
+		lastChecked:  time.Time{},     // not checked yet
 	}
 	t.nextNodeIndex++ // increment for next node
 	
@@ -454,15 +497,17 @@ func (t *Tree) Insert(name string, value []byte) error {
 			// Create an intermediate node placeholder
 			// In real TreeKEM, the public key would be provided by clients after DH computation
 			intermediateNode := &Element{
-				name:      fmt.Sprintf("intermediate_%s_%s", current.name, newNode.name),
-				publicKey: []byte{}, // Will be set by client-side key derivation
-				filePath:  t.generateFilePath(fmt.Sprintf("intermediate_%s_%s", current.name, newNode.name)),
-				leftChild:  current,
-				rightChild: newNode,
-				leftCount:  1,
-				rightCount: 1,
-				nodeType:   "intermediate",
-				nodeIndex:  t.nextNodeIndex, // assign unique node number
+				name:         fmt.Sprintf("intermediate_%s_%s", current.name, newNode.name),
+				publicKey:    []byte{}, // Will be set by client-side key derivation
+				filePath:     t.generateFilePath(fmt.Sprintf("intermediate_%s_%s", current.name, newNode.name)),
+				leftChild:    current,
+				rightChild:   newNode,
+				leftCount:    1,
+				rightCount:   1,
+				nodeType:     "intermediate",
+				nodeIndex:    t.nextNodeIndex, // assign unique node number
+				lastModified: time.Now(),      // mark as modified when created
+				lastChecked:  time.Time{},     // not checked yet
 			}
 			t.nextNodeIndex++ // increment for next node
 			
@@ -856,6 +901,7 @@ func (t *Tree) SetIntermediateNodeKey(nodeName string, publicKey []byte) error {
 	}
 	
 	element.publicKey = publicKey
+	element.MarkAsModified()  // mark as modified when key is updated
 	return element.saveToDisk()
 }
 
@@ -893,6 +939,104 @@ func (t *Tree) GetTreeStructure() map[string]*tree.NodeInfo {
 	
 	traverse(t.head)
 	return structure
+}
+
+// GetModifiedNodes returns all nodes that have been modified since the given time
+func (t *Tree) GetModifiedNodes(since time.Time) []tree.Element {
+	if t.head == nil {
+		return nil
+	}
+
+	var modifiedNodes []tree.Element
+	var traverse func(*Element)
+	traverse = func(node *Element) {
+		if node == nil {
+			return
+		}
+
+		if node.WasModifiedSince(since) {
+			modifiedNodes = append(modifiedNodes, node)
+		}
+
+		traverse(node.leftChild)
+		traverse(node.rightChild)
+	}
+
+	traverse(t.head)
+	return modifiedNodes
+}
+
+// GetNodesNeedingUpdate returns all nodes that need updates (modified after last check)
+func (t *Tree) GetNodesNeedingUpdate() []tree.Element {
+	if t.head == nil {
+		return nil
+	}
+
+	var needUpdateNodes []tree.Element
+	var traverse func(*Element)
+	traverse = func(node *Element) {
+		if node == nil {
+			return
+		}
+
+		if node.NeedsUpdate() {
+			needUpdateNodes = append(needUpdateNodes, node)
+		}
+
+		traverse(node.leftChild)
+		traverse(node.rightChild)
+	}
+
+	traverse(t.head)
+	return needUpdateNodes
+}
+
+// MarkAllAsChecked marks all nodes in the tree as checked (updates lastChecked to now)
+func (t *Tree) MarkAllAsChecked() {
+	if t.head == nil {
+		return
+	}
+
+	var traverse func(*Element)
+	traverse = func(node *Element) {
+		if node == nil {
+			return
+		}
+
+		node.MarkAsChecked()
+		node.saveToDisk() // persist the updated timestamp
+
+		traverse(node.leftChild)
+		traverse(node.rightChild)
+	}
+
+	traverse(t.head)
+}
+
+// GetNodeChangesSince returns a summary of nodes changed since the given time
+func (t *Tree) GetNodeChangesSince(since time.Time) map[string]time.Time {
+	changes := make(map[string]time.Time)
+	
+	if t.head == nil {
+		return changes
+	}
+
+	var traverse func(*Element)
+	traverse = func(node *Element) {
+		if node == nil {
+			return
+		}
+
+		if node.WasModifiedSince(since) {
+			changes[node.name] = node.lastModified
+		}
+
+		traverse(node.leftChild)
+		traverse(node.rightChild)
+	}
+
+	traverse(t.head)
+	return changes
 }
 
 
