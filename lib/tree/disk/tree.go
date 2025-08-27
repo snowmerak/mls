@@ -371,6 +371,12 @@ func (t *Tree) Delete(name string) error {
 		return fmt.Errorf("element not found: %s", name)
 	}
 	t.head = newHead
+	
+	// Reassign node indices and rename intermediate nodes after deletion
+	// to maintain TreeKEM consistency
+	t.renameIntermediateNodes()
+	t.reassignNodeIndices()
+	
 	return err
 }
 
@@ -580,6 +586,73 @@ func (t *Tree) reassignNodeIndices() {
 	}
 	
 	t.nextNodeIndex = index
+}
+
+// renameIntermediateNodes updates intermediate node names after deletion
+// to reflect the current leaf nodes in each subtree
+func (t *Tree) renameIntermediateNodes() {
+	if t.head == nil {
+		return
+	}
+	
+	var updateNames func(*Element)
+	updateNames = func(node *Element) {
+		if node == nil {
+			return
+		}
+		
+		// Recursively update children first
+		updateNames(node.leftChild)
+		updateNames(node.rightChild)
+		
+		// If this is an intermediate node, update its name
+		if node.nodeType == "intermediate" {
+			var leftLeafNames []string
+			var rightLeafNames []string
+			
+			// Collect leaf names from left subtree
+			if node.leftChild != nil {
+				leftLeafNames = collectLeafNames(node.leftChild)
+			}
+			
+			// Collect leaf names from right subtree
+			if node.rightChild != nil {
+				rightLeafNames = collectLeafNames(node.rightChild)
+			}
+			
+			// Generate new name based on current leaves
+			if len(leftLeafNames) > 0 && len(rightLeafNames) > 0 {
+				oldFilePath := node.filePath
+				newName := fmt.Sprintf("intermediate_%s_%s", leftLeafNames[0], rightLeafNames[0])
+				node.name = newName
+				node.filePath = t.generateFilePath(newName)
+				
+				// Remove old file and save with new name
+				if oldFilePath != "" {
+					os.Remove(oldFilePath)
+				}
+				node.saveToDisk()
+			}
+		}
+	}
+	
+	updateNames(t.head)
+}
+
+// collectLeafNames collects all leaf node names in a subtree
+func collectLeafNames(node *Element) []string {
+	if node == nil {
+		return nil
+	}
+	
+	if node.nodeType == "leaf" {
+		return []string{node.name}
+	}
+	
+	var names []string
+	names = append(names, collectLeafNames(node.leftChild)...)
+	names = append(names, collectLeafNames(node.rightChild)...)
+	return names
 }
 
 // GetNodeByIndex finds a node by its index number
