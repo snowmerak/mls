@@ -11,7 +11,8 @@ type Element interface {
 	SetRightChild(Element)
 	SetLeftCount(int)
 	SetRightCount(int)
-	
+	SetValue([]byte)
+
 	// TreeKEM node indexing methods
 	NodeIndex() int
 	SetNodeIndex(int)
@@ -21,6 +22,8 @@ type Element interface {
 	SiblingIndex() int
 	IsLeftChild() bool
 	IsRightChild() bool
+	MarkAsModified()
+	MarkAsChecked()
 }
 
 type Tree interface {
@@ -28,7 +31,7 @@ type Tree interface {
 	Insert(name string, value []byte) error
 	Find(name string) (Element, bool)
 	Delete(name string) error
-	
+
 	// TreeKEM node management methods
 	GetNodeByIndex(index int) Element
 	GetTreeStructure() map[string]*NodeInfo
